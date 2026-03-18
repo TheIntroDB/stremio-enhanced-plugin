@@ -14,7 +14,7 @@ Adds skip intro, recap, credits, and preview segment buttons to stremio enhanced
    * Open Stremio Enhanced.
    * Go into **Settings** and scroll all the way to the bottom.
    * Open the **Plugins** folder.
-   * Download `tidb.plugin.js` from [Releases](https://github.com/TheIntroDB/streamio-enhanced-plugin/releases) and place it into the plugins folder.
+   * Download `tidb.plugin.js` from [Releases](https://github.com/TheIntroDB/stremio-enhanced-plugin/releases) and place it into the plugins folder.
    * **Enable** TheIntroDB plugin in settings
 
 ---
