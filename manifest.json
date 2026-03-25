@@ -3,6 +3,7 @@
   "version": "0.1.1",
   "name": "TheIntroDB",
   "description": "Skip Intro for shows and movies in Stremio Enhanced using TheIntroDB API",
+  "logo": "https://theintrodb.org/apple-touch-icon.png",
   "resources": [
     {
       "name": "plugin",
