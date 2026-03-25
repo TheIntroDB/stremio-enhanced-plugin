@@ -1,7 +1,7 @@
 /**
  * @name TheIntroDB
  * @description Skip Intro for shows and movies in Stremio Enhanced using TheIntroDB API
- * @updateUrl https://raw.githubusercontent.com/TheIntroDB/stremio-enhanced-plugin/refs/heads/main/manifest.json
+ * @updateUrl https://raw.githubusercontent.com/TheIntroDB/stremio-enhanced-plugin/refs/heads/main/tidb.plugin.js
  * @version 0.1.1
  * @author TheIntroDB
  */

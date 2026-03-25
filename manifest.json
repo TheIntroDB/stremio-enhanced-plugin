@@ -1,15 +1,8 @@
 {
-  "id": "org.theintrodb.stremio",
-  "version": "0.1.1",
   "name": "TheIntroDB",
+  "author": "TheIntroDB",
   "description": "Skip Intro for shows and movies in Stremio Enhanced using TheIntroDB API",
-  "logo": "https://theintrodb.org/apple-touch-icon.png",
-  "resources": [
-    {
-      "name": "plugin",
-      "url": "https://github.com/TheIntroDB/stremio-enhanced-plugin/releases/download/v0.1.1/tidb.plugin.js"
-    }
-  ],
-  "types": ["movie", "series"],
-  "catalogs": []
+  "version": "0.1.1",
+  "repo": " `https://github.com/TheIntroDB/stremio-enhanced-plugin` ",
+  "download": " `https://github.com/TheIntroDB/stremio-enhanced-plugin/releases/download/v0.1.1/tidb.plugin.js` "
 }
