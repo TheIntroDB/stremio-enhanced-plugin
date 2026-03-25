@@ -84,8 +84,6 @@
             segments[segmentType] = json[segmentType].map(segment => ({
               start: segment.start_ms ? segment.start_ms / 1000 : 0,
               end: segment.end_ms ? segment.end_ms / 1000 : null,
-              confidence: segment.confidence || 0,
-              submission_count: segment.submission_count || 0
             }));
             console.log(`[TheIntroDB] Loaded ${segments[segmentType].length} ${segmentType} segments`);
           }
