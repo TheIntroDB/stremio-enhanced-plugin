@@ -46,9 +46,9 @@ jobs:
       - name: Update manifest.json
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          URL="https://github.com/$REPO/releases/download/$TAG/tidb.plugin.js"
-          
-          jq --arg v "$VERSION" --arg u "$URL" '.version = $v | .download = (" `"+$u+"` ")' manifest.json > manifest.tmp.json && mv manifest.tmp.json manifest.json
+          URL="https://github.com/$REPO/releases/download/$VERSION/tidb.plugin.js"
+
+          jq --arg v "$VERSION" --arg u "$URL" '.version = $v | .download = $u' manifest.json > manifest.tmp.json && mv manifest.tmp.json manifest.json
           
           echo "Updated manifest.json:"
           cat manifest.json
