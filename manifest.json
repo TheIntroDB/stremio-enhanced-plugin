@@ -8,5 +8,7 @@
       "name": "plugin",
       "url": "https://github.com/TheIntroDB/stremio-enhanced-plugin/releases/download/v0.1.1/tidb.plugin.js"
     }
-  ]
+  ],
+  "types": ["movie", "series"],
+  "catalogs": []
 }
