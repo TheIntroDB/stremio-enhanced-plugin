@@ -1,7 +1,7 @@
 /**
  * @name TheIntroDB
  * @description Skip Intro for shows and movies in Stremio Enhanced using TheIntroDB API
- * @version 0.1.0
+ * @version 0.0.0
  * @author TheIntroDB
  */
 

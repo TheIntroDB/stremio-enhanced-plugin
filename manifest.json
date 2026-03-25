@@ -1,0 +1,12 @@
+{
+  "id": "org.theintrodb.stremio",
+  "version": "0.1.0",
+  "name": "TheIntroDB",
+  "description": "Skip Intro for shows and movies in Stremio Enhanced using TheIntroDB API",
+  "resources": [
+    {
+      "name": "plugin",
+      "url": "https://github.com/Mr360/stremio-enhanced-plugin/releases/download/v0.1.0/tidb.plugin.js"
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+name: '🚀 Publish Plugin'
+
+permissions:
+  contents: write
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Plugin version (e.g. 1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Set version
+        id: version
+        run: |
+          RAW_VERSION="${{ github.event.release.tag_name || github.event.inputs.version }}"
+          VERSION=${RAW_VERSION#v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+          echo "Using version: $VERSION"
+
+      - name: Update version in plugin file
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          sed -i "s/^ \* @version .*/ * @version $VERSION/" tidb.plugin.js
+
+      - name: Update manifest.json
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="${{ steps.version.outputs.tag }}"
+          REPO="${{ github.repository }}"
+          URL="https://github.com/$REPO/releases/download/$TAG/tidb.plugin.js"
+          
+          jq --arg v "$VERSION" --arg u "$URL" '.version = $v | .resources[0].url = $u' manifest.json > manifest.tmp.json && mv manifest.tmp.json manifest.json
+          
+          echo "Updated manifest.json:"
+          cat manifest.json
+
+      - name: Commit and push changes
+        run: |
+          git add tidb.plugin.js manifest.json
+          git commit -m "chore(release): bump version to ${{ steps.version.outputs.version }}"
+          git push
+
+      - name: Upload Release Asset
+        if: github.event_name == 'release'
+        uses: shogo82148/actions-upload-release-asset@v1
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: "tidb.plugin.js"
