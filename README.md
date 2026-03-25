@@ -13,7 +13,7 @@ Adds skip intro, recap, credits, and preview segment buttons to stremio enhanced
    - In Stremio Enhanced, go to **Settings** > **Plugins**.
    - In the "Plugin Manifest URL" field, enter the following URL:
      ```
-     https://raw.githubusercontent.com/TheIntroDB/stremio-enhanced-plugin/main/manifest.json
+     https://raw.githubusercontent.com/TheIntroDB/stremio-enhanced-plugin/refs/heads/main/manifest.json
      ```
    - Click **Add Plugin**.
    - **Enable** TheIntroDB plugin in the settings list.
