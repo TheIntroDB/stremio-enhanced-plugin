@@ -6,8 +6,7 @@ Adds skip intro, recap, credits, and preview segment buttons to stremio enhanced
 
 ## Installation
 
-1. **Install Stremio Enhanced**
-   [Stremio Enhanced](https://github.com/REVENGE977/stremio-enhanced) allows for UI modifications.
+1. **Install [Stremio Enhanced](https://github.com/REVENGE977/stremio-enhanced)** allows for UI modifications.
 
 2. **Add the TheIntroDB plugin**
 
