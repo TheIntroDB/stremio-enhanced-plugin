@@ -10,7 +10,6 @@
 	"use strict";
 
 	const SERVER_URL = "https://api.theintrodb.org/v2";
-	const API_KEY = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiIxMDBiMDIzOWQzNGY5YzI0Yjc2MzM5Mjg2YjNlOWNiMSIsIm5iZiI6MTc0ODUwMzgzMS43NjMsInN1YiI6IjY4MzgwZDE3MDc5YTQyZTI4NzAzODYyMyIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.ykvYVrw8wjBdjkeb-71y1n1Z8ng3xE5ciodJ6FZgrNw";
 	const ACTIVE_BTN_ID = "tidb-active-btn";
 	const MAX_RETRIES = 3;
 	const RETRY_DELAY = 2000;
@@ -105,8 +104,11 @@
 	}
 
 	function getTidbHeaders() {
+    if (!userApiKey) {
+      return {};
+    }
 		return {
-			Authorization: `Bearer ${userApiKey || API_KEY}`
+			Authorization: `Bearer ${userApiKey}`
 		};
 	}
 
