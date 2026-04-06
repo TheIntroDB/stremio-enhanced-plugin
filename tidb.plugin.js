@@ -14,6 +14,13 @@
   const ACTIVE_BTN_ID = "tidb-active-btn";
   const MAX_RETRIES = 3;
   const RETRY_DELAY = 2000;
+  const TIDB_API_KEY_SETTING = "tidb_api_key";
+  const SEGMENT_BUTTON_SETTINGS = {
+    intro: "show_intro_button",
+    recap: "show_recap_button",
+    credits: "show_credits_button",
+    preview: "show_preview_button"
+  };
 
   let video = null;
   let episodeId = null;
@@ -26,9 +33,87 @@
   let overlayObserver = null;
   let skipButtonTimeout = null;
   let displayedSegmentType = null;
+  let userApiKey = "";
+  let segmentButtonVisibility = {
+    intro: true,
+    recap: true,
+    credits: true,
+    preview: true
+  };
+  const settingsReady = initializeSettings();
+
+  async function initializeSettings() {
+    if (typeof StremioEnhancedAPI === "undefined") return;
+
+    await StremioEnhancedAPI.registerSettings([
+      {
+        key: TIDB_API_KEY_SETTING,
+        type: "input",
+        label: "TIDB API Key",
+        description: "Optional personal TheIntroDB API key to include your pending segments in playback results.",
+        defaultValue: ""
+      },
+      {
+        key: SEGMENT_BUTTON_SETTINGS.intro,
+        type: "toggle",
+        label: "Show Intro Button",
+        defaultValue: true
+      },
+      {
+        key: SEGMENT_BUTTON_SETTINGS.recap,
+        type: "toggle",
+        label: "Show Recap Button",
+        defaultValue: true
+      },
+      {
+        key: SEGMENT_BUTTON_SETTINGS.credits,
+        type: "toggle",
+        label: "Show Credits Button",
+        defaultValue: true
+      },
+      {
+        key: SEGMENT_BUTTON_SETTINGS.preview,
+        type: "toggle",
+        label: "Show Preview Button",
+        defaultValue: true
+      }
+    ]);
+  }
+
+  function normalizeApiKey(value) {
+    return typeof value === "string" ? value.trim() : "";
+  }
+
+  function normalizeToggleValue(value) {
+    return value !== false;
+  }
+
+  async function getSegmentButtonVisibility() {
+    const visibility = {};
+    for (const [segmentType, settingKey] of Object.entries(SEGMENT_BUTTON_SETTINGS)) {
+      visibility[segmentType] = normalizeToggleValue(await StremioEnhancedAPI.getSetting(settingKey));
+    }
+    return visibility;
+  }
+
+  function isSegmentButtonEnabled(segmentType) {
+    return segmentButtonVisibility[segmentType] !== false;
+  }
+
+  function getTidbHeaders() {
+    return { Authorization: `Bearer ${userApiKey || API_KEY}` };
+  }
+
+  async function loadSettings() {
+    if (typeof StremioEnhancedAPI === "undefined") return;
+    userApiKey = normalizeApiKey(await StremioEnhancedAPI.getSetting(TIDB_API_KEY_SETTING));
+    segmentButtonVisibility = await getSegmentButtonVisibility();
+  }
   
   async function onPlay() {
     video = document.querySelector("video");
+    await settingsReady;
+    await loadSettings();
     episodeId = await getEpisodeId();
     title = await getTitle();
     console.log(`[TheIntroDB] \nEpisode ID: ${episodeId}, \nTitle: ${title}`);
@@ -57,9 +142,7 @@
         }
 
         const res = await fetch(`${SERVER_URL}/media?${queryParams}`, {
-          headers: {
-            'Authorization': `Bearer ${API_KEY}`
-          }
+          headers: getTidbHeaders()
         });
         if (res.status === 204) {
           segments = { intro: [], recap: [], credits: [], preview: [] };
@@ -171,7 +254,7 @@
       }
       activeSegment = newActiveSegment;
 
-      const segmentType = activeSegment ? activeSegment.type : null;
+      const segmentType = activeSegment && isSegmentButtonEnabled(activeSegment.type) ? activeSegment.type : null;
 
       // If the segment state is different from what's displayed, update the UI
       if (segmentType !== displayedSegmentType) {
@@ -209,7 +292,7 @@
         overlayObserver = new MutationObserver(() => {
             const isOverlayHidden = Array.from(playerContainer.classList).some(c => c.includes('overlayHidden'));
             // If the overlay is now visible, a segment is active, and the button is missing, show it.
-            if (!isOverlayHidden && activeSegment && !document.getElementById(ACTIVE_BTN_ID)) {
+            if (!isOverlayHidden && activeSegment && isSegmentButtonEnabled(activeSegment.type) && !document.getElementById(ACTIVE_BTN_ID)) {
                 showSkipButton(activeSegment);
             }
         });
@@ -304,6 +387,7 @@
     skipBtn.id = ACTIVE_BTN_ID;
     
     const segmentType = activeSegment.type;
+    if (!isSegmentButtonEnabled(segmentType)) return;
     skipBtn.setAttribute('data-segment-type', segmentType);
 
     const segmentLabels = {
