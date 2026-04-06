@@ -5,6 +5,8 @@
  * @version 0.1.2
  * @author TheIntroDB
  */
+/* jshint esversion: 11, browser: true, devel: true */
+/* global StremioEnhancedAPI */
 
 (function() {
 	"use strict";
@@ -29,8 +31,8 @@
 		recap: [],
 		credits: [],
 		preview: []
-	}; // Store all segment types
-	let activeSegment = null; // Currently active segment
+	};
+	let activeSegment = null;
 	let onTimeUpdate = null;
 	let onSeekedHandler = null;
 	let onMouseMoveHandler = null;
@@ -45,9 +47,12 @@
 		preview: true
 	};
 	const settingsReady = initializeSettings();
+	const HIDE_TIMEOUT = 5000;
 
 	async function initializeSettings() {
-		if (typeof StremioEnhancedAPI === "undefined") return;
+		if (typeof StremioEnhancedAPI === "undefined") {
+			return;
+		}
 
 		await StremioEnhancedAPI.registerSettings([{
 				key: TIDB_API_KEY_SETTING,
@@ -93,9 +98,11 @@
 
 	async function getSegmentButtonVisibility() {
 		const visibility = {};
+
 		for (const [segmentType, settingKey] of Object.entries(SEGMENT_BUTTON_SETTINGS)) {
 			visibility[segmentType] = normalizeToggleValue(await StremioEnhancedAPI.getSetting(settingKey));
 		}
+
 		return visibility;
 	}
 
@@ -104,16 +111,20 @@
 	}
 
 	function getTidbHeaders() {
-    if (!userApiKey) {
-      return {};
-    }
+		if (!userApiKey) {
+			return {};
+		}
+
 		return {
 			Authorization: `Bearer ${userApiKey}`
 		};
 	}
 
 	async function loadSettings() {
-		if (typeof StremioEnhancedAPI === "undefined") return;
+		if (typeof StremioEnhancedAPI === "undefined") {
+			return;
+		}
+
 		userApiKey = normalizeApiKey(await StremioEnhancedAPI.getSetting(TIDB_API_KEY_SETTING));
 		segmentButtonVisibility = await getSegmentButtonVisibility();
 	}
@@ -124,34 +135,37 @@
 		await loadSettings();
 		episodeId = await getEpisodeId();
 		title = await getTitle();
+
 		console.log(`[TheIntroDB] \nEpisode ID: ${episodeId}, \nTitle: ${title}`);
 		await fetchData();
 	}
+
 	async function fetchData() {
 		for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
 			console.log(`[TheIntroDB] Fetching /media for episode ${episodeId} (attempt ${attempt})`);
+
 			try {
-				const parts = episodeId.split(':');
+				const parts = episodeId.split(":");
 				const id = parts[0];
 				const isTvShow = parts.length === 3;
-				const isImdb = id.startsWith('tt');
-
+				const isImdb = id.startsWith("tt");
 				const queryParams = new URLSearchParams();
 
 				if (isImdb) {
-					queryParams.set('imdb_id', id);
+					queryParams.set("imdb_id", id);
 				} else {
-					queryParams.set('tmdb_id', id);
+					queryParams.set("tmdb_id", id);
 				}
 
 				if (isTvShow) {
-					queryParams.set('season', parts[1]);
-					queryParams.set('episode', parts[2]);
+					queryParams.set("season", parts[1]);
+					queryParams.set("episode", parts[2]);
 				}
 
 				const res = await fetch(`${SERVER_URL}/media?${queryParams}`, {
 					headers: getTidbHeaders()
 				});
+
 				if (res.status === 204) {
 					segments = {
 						intro: [],
@@ -162,6 +176,7 @@
 					console.log(`[TheIntroDB] No skip data for episode ${episodeId} (${res.status})`);
 					return null;
 				}
+
 				if (res.status === 404) {
 					console.warn(`[TheIntroDB] No data found for episode ${episodeId}`);
 					segments = {
@@ -172,12 +187,14 @@
 					};
 					return null;
 				}
+
 				if (!res.ok) {
 					console.warn(`[TheIntroDB] Unexpected response for ${episodeId}: ${res.status}`);
 					return null;
 				}
+
 				const json = await res.json();
-				// Map TheIntroDB API response to our format
+
 				segments = {
 					intro: [],
 					recap: [],
@@ -185,66 +202,63 @@
 					preview: []
 				};
 
-				// Process all segment types
-				['intro', 'recap', 'credits', 'preview'].forEach(segmentType => {
+				for (const segmentType of ["intro", "recap", "credits", "preview"]) {
 					if (json[segmentType] && json[segmentType].length > 0) {
-						segments[segmentType] = json[segmentType].map(segment => ({
+						segments[segmentType] = json[segmentType].map((segment) => ({
 							start: segment.start_ms ? segment.start_ms / 1000 : 0,
-							end: segment.end_ms ? segment.end_ms / 1000 : null,
+							end: segment.end_ms ? segment.end_ms / 1000 : null
 						}));
 						console.log(`[TheIntroDB] Loaded ${segments[segmentType].length} ${segmentType} segments`);
 					}
-				});
+				}
 
-				const totalSegments = Object.values(segments).flat().length;
-				if (totalSegments === 0) {
+				if (Object.values(segments).flat().length === 0) {
 					console.log(`[TheIntroDB] No segment data found for episode ${episodeId}`);
 				}
+
 				highlightRangeOnBar();
 				attachTimeUpdate();
 				return null;
 			} catch (err) {
 				console.error(`[TheIntroDB] Error fetching media for ${episodeId}:`, err);
+
 				if (attempt < MAX_RETRIES) {
-					await new Promise(r => setTimeout(r, RETRY_DELAY));
+					await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
 				} else {
 					return null;
 				}
 			}
 		}
+
 		return null;
 	}
 
 	function cleanup() {
 		console.log("[TheIntroDB] Cleaning up previous media...");
 
-		// Remove event listeners from the old video element
 		if (video) {
 			video.removeEventListener("timeupdate", onTimeUpdate);
 			video.removeEventListener("seeked", onSeekedHandler);
 			video.removeEventListener("loadedmetadata", onPlay);
-			const playerContainer = video.closest('.player-container');
+
+			const playerContainer = video.closest(".player-container");
 			if (playerContainer) {
-				playerContainer.removeEventListener('mousemove', onMouseMoveHandler);
+				playerContainer.removeEventListener("mousemove", onMouseMoveHandler);
 			}
 		}
 
-		// Disconnect the overlay observer
 		if (overlayObserver) {
 			overlayObserver.disconnect();
 			overlayObserver = null;
 		}
 
-		// Clear any pending timeouts
 		clearTimeout(skipButtonTimeout);
 
-		// Remove UI elements
 		const existingButton = document.getElementById(ACTIVE_BTN_ID);
 		if (existingButton) {
 			existingButton.remove();
 		}
 
-		// Reset state variables
 		video = null;
 		episodeId = null;
 		title = null;
@@ -263,8 +277,8 @@
 
 	function attachTimeUpdate() {
 		onTimeUpdate = async () => {
-			// Find the current active segment
 			let newActiveSegment = null;
+
 			for (const [segmentType, segmentList] of Object.entries(segments)) {
 				for (const segment of segmentList) {
 					const segmentEnd = segment.end || video.duration;
@@ -278,13 +292,16 @@
 						break;
 					}
 				}
-				if (newActiveSegment) break;
+
+				if (newActiveSegment) {
+					break;
+				}
 			}
+
 			activeSegment = newActiveSegment;
 
 			const segmentType = activeSegment && isSegmentButtonEnabled(activeSegment.type) ? activeSegment.type : null;
 
-			// If the segment state is different from what's displayed, update the UI
 			if (segmentType !== displayedSegmentType) {
 				const existingButton = document.getElementById(ACTIVE_BTN_ID);
 				if (existingButton) {
@@ -302,7 +319,6 @@
 		onSeekedHandler = () => onTimeUpdate();
 
 		onMouseMoveHandler = () => {
-			// If the button is visible, reset its hide timer.
 			if (document.getElementById(ACTIVE_BTN_ID)) {
 				clearTimeout(skipButtonTimeout);
 				skipButtonTimeout = setTimeout(hideSkipButton, HIDE_TIMEOUT);
@@ -314,12 +330,11 @@
 
 		const playerContainer = video.closest('[class*="player-container"]');
 		if (playerContainer) {
-			playerContainer.addEventListener('mousemove', onMouseMoveHandler);
+			playerContainer.addEventListener("mousemove", onMouseMoveHandler);
 
-			// This observer is the new core logic for re-showing the button.
 			overlayObserver = new MutationObserver(() => {
-				const isOverlayHidden = Array.from(playerContainer.classList).some(c => c.includes('overlayHidden'));
-				// If the overlay is now visible, a segment is active, and the button is missing, show it.
+				const isOverlayHidden = Array.from(playerContainer.classList).some((className) => className.includes("overlayHidden"));
+
 				if (!isOverlayHidden && activeSegment && isSegmentButtonEnabled(activeSegment.type) && !document.getElementById(ACTIVE_BTN_ID)) {
 					showSkipButton(activeSegment);
 				}
@@ -327,115 +342,115 @@
 
 			overlayObserver.observe(playerContainer, {
 				attributes: true,
-				attributeFilter: ['class']
+				attributeFilter: ["class"]
 			});
 		}
 	}
 
-
-
 	async function highlightRangeOnBar() {
 		const slider = document.querySelector(".slider-container-nJz5F");
-		if (!slider) return;
+		if (!slider || !video || !video.duration) {
+			return;
+		}
 
-		// Remove existing highlights
 		const existingHighlights = slider.querySelectorAll(".segment-highlight");
-		existingHighlights.forEach(h => h.remove());
-
-		if (!video || !video.duration) return;
+		existingHighlights.forEach((highlight) => highlight.remove());
 
 		const trackEl = slider.querySelector(".track-gItfW");
-		if (!trackEl) return;
+		if (!trackEl) {
+			return;
+		}
 
-		// Segment colors
 		const segmentColors = {
-			intro: "rgba(255, 217, 0, 0.6)", // Yellow
-			recap: "rgba(255, 165, 0, 0.6)", // Orange  
-			credits: "rgba(100, 149, 237, 0.6)", // Cornflower blue
-			preview: "rgba(144, 238, 144, 0.6)" // Light green
+			intro: "rgba(255, 217, 0, 0.6)",
+			recap: "rgba(255, 165, 0, 0.6)",
+			credits: "rgba(100, 149, 237, 0.6)",
+			preview: "rgba(144, 238, 144, 0.6)"
 		};
 
-		// Create highlights for all segments
 		for (const [segmentType, segmentList] of Object.entries(segments)) {
-			segmentList.forEach((segment) => {
+			for (const segment of segmentList) {
 				const highlight = document.createElement("div");
-				highlight.className = `segment-highlight segment-${segmentType}`;
-
+				const thumbEl = slider.querySelector(".thumb-PiTF5");
+				const thumbLayer = thumbEl && thumbEl.parentNode;
 				const startPct = (segment.start / video.duration) * 100;
 				const segmentEnd = segment.end || video.duration;
 				const widthPct = ((segmentEnd - segment.start) / video.duration) * 100;
 
+				highlight.className = `segment-highlight segment-${segmentType}`;
+
 				Object.assign(highlight.style, {
 					position: "absolute",
-					top: trackEl.offsetTop + "px",
+					top: `${trackEl.offsetTop}px`,
 					left: `${startPct}%`,
 					width: `${widthPct}%`,
 					borderRadius: "4px",
-					height: trackEl.clientHeight + "px",
+					height: `${trackEl.clientHeight}px`,
 					background: segmentColors[segmentType],
 					pointerEvents: "none",
 					zIndex: "0"
 				});
 
-				const thumbEl = slider.querySelector('.thumb-PiTF5');
-				const thumbLayer = thumbEl && thumbEl.parentNode;
 				slider.insertBefore(highlight, thumbLayer && slider.contains(thumbLayer) ? thumbLayer : slider.firstChild);
-			});
+			}
 		}
 	}
-	const HIDE_TIMEOUT = 5000; // 5 seconds
 
 	function hideSkipButton() {
 		const playerContainer = document.querySelector('[class*="player-container"]');
-		const isOverlayHidden = playerContainer && Array.from(playerContainer.classList).some(c => c.includes('overlayHidden'));
+		const isOverlayHidden = playerContainer && Array.from(playerContainer.classList).some((className) => className.includes("overlayHidden"));
 
-		// Only hide the button if the overlay is also hidden
 		if (isOverlayHidden) {
 			const button = document.getElementById(ACTIVE_BTN_ID);
 			if (button) {
-				button.style.opacity = '0';
+				button.style.opacity = "0";
 				setTimeout(() => {
-					if (button && button.style.opacity === '0') {
+					if (button && button.style.opacity === "0") {
 						button.remove();
 					}
 				}, 500);
 			}
 		} else {
-			// If overlay is visible, ensure button is visible and reset timer
 			const button = document.getElementById(ACTIVE_BTN_ID);
 			if (button) {
-				button.style.opacity = '1'; // Make button visible
+				button.style.opacity = "1";
 			}
+
 			clearTimeout(skipButtonTimeout);
 			skipButtonTimeout = setTimeout(hideSkipButton, HIDE_TIMEOUT);
 		}
 	}
 
+	async function showSkipButton(segment) {
+		if (document.getElementById(ACTIVE_BTN_ID)) {
+			return;
+		}
 
-	async function showSkipButton(activeSegment) {
-		if (document.getElementById(ACTIVE_BTN_ID)) return;
+		const segmentType = segment.type;
+		if (!isSegmentButtonEnabled(segmentType)) {
+			return;
+		}
+
 		const skipBtn = document.createElement("button");
-		skipBtn.id = ACTIVE_BTN_ID;
-
-		const segmentType = activeSegment.type;
-		if (!isSegmentButtonEnabled(segmentType)) return;
-		skipBtn.setAttribute('data-segment-type', segmentType);
-
+		const icon = document.createElement("img");
 		const segmentLabels = {
 			intro: "Skip Intro",
 			recap: "Skip Recap",
 			credits: "Skip Credits",
 			preview: "Skip Preview"
 		};
+
+		skipBtn.id = ACTIVE_BTN_ID;
+		skipBtn.setAttribute("data-segment-type", segmentType);
 		skipBtn.textContent = segmentLabels[segmentType] || "Skip Segment";
 
-		const icon = document.createElement("img");
 		icon.src = "https://www.svgrepo.com/show/471906/skip-forward.svg";
 		icon.alt = "Skip icon";
 		icon.width = 24;
 		icon.height = 24;
 		icon.style.filter = "brightness(0) invert(1)";
 		icon.style.pointerEvents = "none";
+
 		Object.assign(skipBtn.style, {
 			position: "absolute",
 			bottom: "130px",
@@ -451,33 +466,39 @@
 			display: "flex",
 			alignItems: "center",
 			gap: "8px",
-			opacity: "0", // Start transparent for fade-in
+			opacity: "0",
 			transition: "opacity 0.5s ease-in-out"
 		});
+
 		skipBtn.prepend(icon);
 
 		skipBtn.onmouseover = () => {
 			skipBtn.style.backgroundColor = "#1b192b";
 			clearTimeout(skipButtonTimeout);
 		};
+
 		skipBtn.onmouseout = () => {
 			skipBtn.style.backgroundColor = "#0f0d20";
 			skipButtonTimeout = setTimeout(hideSkipButton, HIDE_TIMEOUT);
 		};
 
-		skipBtn.onclick = (e) => {
-			e.preventDefault();
+		skipBtn.onclick = (event) => {
+			event.preventDefault();
 			clearTimeout(skipButtonTimeout);
+
 			if (video) {
-				video.currentTime = activeSegment.end;
-				console.log(`[TheIntroDB] Skipping ${segmentType}: targetTime=${activeSegment.end}`);
+				video.currentTime = segment.end;
+				console.log(`[TheIntroDB] Skipping ${segmentType}: targetTime=${segment.end}`);
 			}
+
 			skipBtn.remove();
-			displayedSegmentType = null; // Reset state immediately on click
+			displayedSegmentType = null;
 		};
 
 		video.parentElement.appendChild(skipBtn);
-		setTimeout(() => skipBtn.style.opacity = '1', 50); // Fade in
+		setTimeout(() => {
+			skipBtn.style.opacity = "1";
+		}, 50);
 
 		skipButtonTimeout = setTimeout(hideSkipButton, HIDE_TIMEOUT);
 	}
@@ -487,35 +508,43 @@
 			seriesInfo,
 			meta
 		} = await getPlayerState();
-		let title = meta?.name || "Unknown Title";
+		let resolvedTitle = meta?.name || "Unknown Title";
+
 		if (seriesInfo?.season != null && seriesInfo?.episode != null) {
-			const s = String(seriesInfo.season).padStart(2, "0");
-			const e = String(seriesInfo.episode).padStart(2, "0");
-			title = `${title} S${s}E${e}`;
+			const season = String(seriesInfo.season).padStart(2, "0");
+			const episode = String(seriesInfo.episode).padStart(2, "0");
+			resolvedTitle = `${resolvedTitle} S${season}E${episode}`;
 		}
-		return title;
+
+		return resolvedTitle;
 	}
+
 	async function getPlayerState() {
 		let state = null;
+
 		while (!state?.metaItem?.content) {
 			state = await _eval("window.services.core.transport.getState('player')");
-			if (!state?.metaItem?.content) await new Promise(r => setTimeout(r, 300));
+			if (!state?.metaItem?.content) {
+				await new Promise((resolve) => setTimeout(resolve, 300));
+			}
 		}
+
 		return {
 			seriesInfo: state.seriesInfo,
 			meta: state.metaItem.content
 		};
 	}
+
 	async function getEpisodeId() {
 		const {
 			seriesInfo,
 			meta
 		} = await getPlayerState();
-		// For TV shows, seriesInfo is available
+
 		if (seriesInfo && seriesInfo.season && seriesInfo.episode) {
 			return `${meta.id}:${seriesInfo.season}:${seriesInfo.episode}`;
 		}
-		// For movies, seriesInfo is null
+
 		return meta.id;
 	}
 
@@ -523,37 +552,42 @@
 		return new Promise((resolve) => {
 			const event = "stremio-enhanced";
 			const script = document.createElement("script");
-			window.addEventListener(event, (e) => {
+
+			window.addEventListener(event, (browserEvent) => {
 				script.remove();
-				resolve(e.detail);
+				resolve(browserEvent.detail);
 			}, {
 				once: true
 			});
+
 			script.textContent = `
-        (async () => {
-          try {
-            const res = ${js};
-            if (res instanceof Promise) res.then(r => window.dispatchEvent(new CustomEvent('${event}', { detail: r })));
-            else window.dispatchEvent(new CustomEvent('${event}', { detail: res }));
-          } catch (err) {
-            console.error(err);
-            window.dispatchEvent(new CustomEvent('${event}', { detail: null }));
-          }
-        })();`;
+                (async () => {
+                    try {
+                        const res = ${js};
+                        if (res instanceof Promise) {
+                            res.then((result) => window.dispatchEvent(new CustomEvent("${event}", { detail: result })));
+                        } else {
+                            window.dispatchEvent(new CustomEvent("${event}", { detail: res }));
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        window.dispatchEvent(new CustomEvent("${event}", { detail: null }));
+                    }
+                })();
+            `;
+
 			document.head.appendChild(script);
 		});
 	}
 
-	/**
-	 * Attaches an observer to the document body to detect when a new video is loaded.
-	 * When a new video is detected, it cleans up the old video element and attaches the onPlay event listener to the new one.
-	 */
 	const observer = new MutationObserver(() => {
 		const newVideo = document.querySelector("video");
+
 		if (newVideo && newVideo !== video) {
 			if (video) {
 				cleanup();
 			}
+
 			video = newVideo;
 			video.addEventListener("loadedmetadata", onPlay, {
 				once: true
