@@ -16,6 +16,7 @@
 	const MAX_RETRIES = 3;
 	const RETRY_DELAY = 2000;
 	const TIDB_API_KEY_SETTING = "tidb_api_key";
+	const TIDB_USER_AGENT = "TheIntroDB Stremio Enhanced Plugin";
 	const SEGMENT_BUTTON_SETTINGS = {
 		intro: "show_intro_button",
 		recap: "show_recap_button",
@@ -111,13 +112,15 @@
 	}
 
 	function getTidbHeaders() {
-		if (!userApiKey) {
-			return {};
+		const headers = {
+			"User-Agent": TIDB_USER_AGENT
+		};
+
+		if (userApiKey) {
+			headers.Authorization = `Bearer ${userApiKey}`;
 		}
 
-		return {
-			Authorization: `Bearer ${userApiKey}`
-		};
+		return headers;
 	}
 
 	async function loadSettings() {
