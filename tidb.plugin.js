@@ -2,7 +2,7 @@
  * @name TheIntroDB
  * @description Skip intros, recaps, credits, and previews in TV shows and movies in Stremio Enhanced using TheIntroDB API
  * @updateUrl https://raw.githubusercontent.com/TheIntroDB/stremio-enhanced-plugin/refs/heads/main/tidb.plugin.js
- * @version 0.2.0
+ * @version 0.2.1
  * @author TheIntroDB
  */
 /* jshint esversion: 11, browser: true, devel: true */
@@ -26,6 +26,7 @@
 	const TIDB_API_KEY_SETTING = "tidb_api_key";
 	const TMDB_API_TOKEN_SETTING = "tmdb_api_token";
 	const SUBMISSION_UI_SETTING = "enable_submission_ui";
+	const TIDB_USER_AGENT = "TheIntroDB Stremio Enhanced Plugin";
 	const SEGMENT_BUTTON_SETTINGS = {
 		intro: "show_intro_button",
 		recap: "show_recap_button",
@@ -142,7 +143,15 @@
 	}
 
 	function getTidbHeaders() {
-		return userApiKey ? { Authorization: `Bearer ${userApiKey}` } : {};
+		const headers = {
+			"User-Agent": TIDB_USER_AGENT
+		};
+
+		if (userApiKey) {
+			headers.Authorization = `Bearer ${userApiKey}`;
+		}
+
+		return headers;
 	}
 
 	async function loadSettings() {
