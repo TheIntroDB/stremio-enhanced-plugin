@@ -6,7 +6,7 @@ Adds skip intro, recap, credits, and preview segment buttons to stremio enhanced
 
 ## Installation
 
-1. **Install [Stremio Enhanced](https://github.com/REVENGE977/stremio-enhanced)** allows for UI modifications.
+1. **Install [Stremio Enhanced Electron Wrapper](https://github.com/REVENGE977/stremio-enhanced) or [Stremio Enhanced Chrome Extension](https://github.com/Dxrmy/stremio-enhanced-chrome)** which allows for UI modifications.
 
 2. **Add the TheIntroDB plugin**
 
@@ -24,11 +24,7 @@ Adds skip intro, recap, credits, and preview segment buttons to stremio enhanced
 ---
 
 ## TODO:
-- [x] Verify that it works for all media types
-- [x] Add a setting to input the user's API key
 - [ ] Add a menu (and clickable control icon) to submit segments from within the player
-- [x] Add a setting to enable/disable the skip button for specific segments
-- [x] Add update reminder or versioning logic
 
 ## Contrubution:
 Pull requests are welcome! For major changes, please open an issue first to discuss what you would like to change.
