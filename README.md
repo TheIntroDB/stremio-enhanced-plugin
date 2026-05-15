@@ -23,9 +23,6 @@ Adds skip intro, recap, credits, and preview segment buttons to stremio enhanced
 
 ---
 
-## TODO:
-- [ ] Add a menu (and clickable control icon) to submit segments from within the player
-
 ## Contrubution:
 Pull requests are welcome! For major changes, please open an issue first to discuss what you would like to change.
 
