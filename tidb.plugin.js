@@ -2,7 +2,7 @@
  * @name TheIntroDB
  * @description Skip intros, recaps, credits, and previews in TV shows and movies in Stremio Enhanced using TheIntroDB API
  * @updateUrl https://raw.githubusercontent.com/TheIntroDB/stremio-enhanced-plugin/refs/heads/main/tidb.plugin.js
- * @version 1.0.0
+ * @version 1.0.1
  * @author TheIntroDB
  */
 /* jshint esversion: 11, browser: true, devel: true */
@@ -11,11 +11,13 @@
 (function() {
 	"use strict";
 
+	const PLUGIN_VERSION = "1.0.1";
 	const SERVER_URL = "https://api.theintrodb.org/v2";
 	const ACTIVE_BTN_ID = "tidb-active-btn";
 	const MAX_RETRIES = 3;
 	const RETRY_DELAY = 2000;
 	const TIDB_API_KEY_SETTING = "tidb_api_key";
+	const ANALYTICS_SETTING = "anonymous_usage_reporting";
 	const TIDB_USER_AGENT = "TheIntroDB Stremio Enhanced Plugin";
 	const SEGMENT_BUTTON_SETTINGS = {
 		intro: "show_intro_button",
@@ -37,6 +39,120 @@
 		preview: "rgba(144, 238, 144, 0.6)"
 	});
 	const HIDE_TIMEOUT = 5000;
+
+	const APTABASE_APP_KEY = "A-SH-3524453842";
+	const APTABASE_HOST = "https://analytics.theintrodb.org";
+	const APTABASE_SDK_VERSION = "aptabase-web@userscript";
+	const APTABASE_SESSION_TIMEOUT_SEC = 1 * 60 * 60;
+
+	let _aptabaseAppKey = "";
+	let _aptabaseApiUrl = null;
+	let _aptabaseAppVersion = "";
+	let _aptabaseIsDebug = null;
+	let _aptabaseLocale = null;
+	let _aptabaseSessionId = null;
+	let _aptabaseLastTouched = 0;
+
+	function aptabaseNewSessionId() {
+		const epochInSeconds = Math.floor(Date.now() / 1000).toString();
+		const random = Math.floor(Math.random() * 100000000).toString().padStart(8, "0");
+		return epochInSeconds + random;
+	}
+
+	function aptabaseInMemorySessionId(timeoutSec) {
+		const now = Date.now();
+		const diffInSec = Math.floor((now - _aptabaseLastTouched) / 1000);
+		if (!_aptabaseSessionId || diffInSec > timeoutSec) {
+			_aptabaseSessionId = aptabaseNewSessionId();
+		}
+		_aptabaseLastTouched = now;
+		return _aptabaseSessionId;
+	}
+
+	function aptabaseGetBrowserLocale() {
+		if (_aptabaseLocale) return _aptabaseLocale;
+		if (typeof navigator === "undefined") return undefined;
+		_aptabaseLocale = (navigator.languages && navigator.languages.length > 0) ? navigator.languages[0] : navigator.language;
+		return _aptabaseLocale;
+	}
+
+	function aptabaseGetIsDebug() {
+		if (_aptabaseIsDebug !== null) return _aptabaseIsDebug;
+		if (typeof location === "undefined") { _aptabaseIsDebug = false; return _aptabaseIsDebug; }
+		_aptabaseIsDebug = location.hostname === "localhost";
+		return _aptabaseIsDebug;
+	}
+
+	function aptabaseValidateAppKey(appKey) {
+		const parts = String(appKey || "").split("-");
+		return parts.length === 3 && ["US", "EU", "DEV", "SH"].includes(parts[1]);
+	}
+
+	function aptabaseGetApiUrl(appKey, options) {
+		const region = String(appKey || "").split("-")[1];
+		if (region === "SH") {
+			if (!options || !options.host) return null;
+			return `${options.host}/api/v0/event`;
+		}
+		const hosts = { US: "https://us.aptabase.com", EU: "https://eu.aptabase.com", DEV: "https://localhost:3000" };
+		const host = (options && options.host) ? options.host : hosts[region];
+		return host ? `${host}/api/v0/event` : null;
+	}
+
+	function aptabaseInit(appKey, options) {
+		if (!aptabaseValidateAppKey(appKey)) return false;
+		_aptabaseApiUrl = (options && options.apiUrl) ? options.apiUrl : aptabaseGetApiUrl(appKey, options);
+		if (!_aptabaseApiUrl) return false;
+		_aptabaseAppKey = appKey;
+		_aptabaseAppVersion = (options && options.appVersion) ? String(options.appVersion) : "";
+		return true;
+	}
+
+	async function aptabaseSendEvent(eventName, props) {
+		if (typeof fetch !== "function" || !_aptabaseApiUrl || !_aptabaseAppKey) return;
+		try {
+			const sessionId = aptabaseInMemorySessionId(APTABASE_SESSION_TIMEOUT_SEC);
+			const response = await fetch(_aptabaseApiUrl, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"App-Key": _aptabaseAppKey
+				},
+				credentials: "omit",
+				body: JSON.stringify({
+					timestamp: new Date().toISOString(),
+					sessionId,
+					eventName,
+					systemProps: {
+						locale: aptabaseGetBrowserLocale(),
+						isDebug: aptabaseGetIsDebug(),
+						appVersion: _aptabaseAppVersion,
+						sdkVersion: APTABASE_SDK_VERSION
+					},
+					props
+				})
+			});
+			if (response.status >= 300) {
+				const responseBody = await response.text();
+				console.warn(`Failed to send event "${eventName}": ${response.status} ${responseBody}`);
+			}
+		} catch (e) {
+			console.warn(`Failed to send event "${eventName}"`);
+			console.warn(e);
+		}
+	}
+
+	function aptabaseTrackEvent(eventName, props) {
+		aptabaseSendEvent(eventName, props);
+	}
+
+	function initAnalyticsOnce() {
+		if (window.__tidbAnalyticsInitialized) return;
+		const ok = aptabaseInit(APTABASE_APP_KEY, { host: APTABASE_HOST, appVersion: PLUGIN_VERSION });
+		if (!ok) return;
+		window.__tidbAnalyticsInitialized = true;
+		aptabaseTrackEvent("plugin_started", { version: PLUGIN_VERSION });
+	}
 
 	function capitalize(value) {
 		const str = String(value || "");
@@ -66,6 +182,7 @@
 			this.skipButtonTimeout = null;
 			this.overlayObserver = null;
 			this.userApiKey = "";
+			this.analyticsEnabled = true;
 			this.segmentButtonVisibility = Object.fromEntries(SEGMENT_TYPES.map((type) => [type, true]));
 			this.onTimeUpdate = null;
 			this.onSeekedHandler = null;
@@ -122,6 +239,14 @@
 					});
 				}
 
+				schema.push({
+					key: ANALYTICS_SETTING,
+					type: "toggle",
+					label: "Anonymous usage reporting",
+					description: "Send anonymous feature usage events (e.g. button shown/clicked) to help improve the plugin. No media IDs or titles are sent.",
+					defaultValue: true
+				});
+
 				await StremioEnhancedAPI.registerSettings(schema);
 				window.__tidbSettingsRegistered = true;
 			} catch (err) {
@@ -140,12 +265,20 @@
 			}
 
 			this.userApiKey = normalizeApiKey(await StremioEnhancedAPI.getSetting(TIDB_API_KEY_SETTING));
+			this.analyticsEnabled = normalizeToggleValue(await StremioEnhancedAPI.getSetting(ANALYTICS_SETTING));
+			if (this.analyticsEnabled) initAnalyticsOnce();
 
 			const visibility = {};
 			for (const [segmentType, settingKey] of Object.entries(SEGMENT_BUTTON_SETTINGS)) {
 				visibility[segmentType] = normalizeToggleValue(await StremioEnhancedAPI.getSetting(settingKey));
 			}
 			this.segmentButtonVisibility = visibility;
+		}
+
+		track(eventName, props) {
+			if (!this.analyticsEnabled) return;
+			initAnalyticsOnce();
+			aptabaseTrackEvent(eventName, props);
 		}
 
 		isSegmentButtonEnabled(segmentType) {
@@ -377,6 +510,13 @@
 						this.onTimeUpdate();
 						setTimeout(() => this.onTimeUpdate && this.onTimeUpdate(), 200);
 					}
+					this.track("segments_loaded", {
+						has_intro: this.segments.intro && this.segments.intro.length > 0,
+						has_recap: this.segments.recap && this.segments.recap.length > 0,
+						has_credits: this.segments.credits && this.segments.credits.length > 0,
+						has_preview: this.segments.preview && this.segments.preview.length > 0,
+						total: Object.values(this.segments).reduce((acc, list) => acc + (list ? list.length : 0), 0)
+					});
 					return null;
 				} catch (err) {
 					console.error(`[TheIntroDB] Error fetching media for ${episodeId}:`, err);
@@ -503,6 +643,7 @@
 		showSkipButton(segment) {
 			const segmentType = segment.type;
 			if (document.getElementById(ACTIVE_BTN_ID) || !this.isSegmentButtonEnabled(segmentType)) return;
+			this.track("skip_button_shown", { segment: segmentType });
 
 			const skipBtn = document.createElement("button");
 			const icon = document.createElement("img");
@@ -524,7 +665,7 @@
 
 			skipBtn.onmouseover = () => { skipBtn.style.backgroundColor = "#1b192b"; clearTimeout(this.skipButtonTimeout); };
 			skipBtn.onmouseout = () => { skipBtn.style.backgroundColor = "#0f0d20"; this.skipButtonTimeout = setTimeout(() => this.hideSkipButton(), HIDE_TIMEOUT); };
-			skipBtn.onclick = (event) => { event.preventDefault(); clearTimeout(this.skipButtonTimeout); if (this.video) { this.video.currentTime = segment.end; console.log(`[TheIntroDB] Skipping ${segmentType}: targetTime=${segment.end}`); } skipBtn.remove(); this.displayedSegmentType = null; };
+			skipBtn.onclick = (event) => { event.preventDefault(); clearTimeout(this.skipButtonTimeout); this.track("skip_clicked", { segment: segmentType }); if (this.video) { this.video.currentTime = segment.end; console.log(`[TheIntroDB] Skipping ${segmentType}: targetTime=${segment.end}`); } skipBtn.remove(); this.displayedSegmentType = null; };
 
 			if (this.video && this.video.parentElement) {
 				this.video.parentElement.appendChild(skipBtn);
