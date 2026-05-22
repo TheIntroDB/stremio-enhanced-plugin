@@ -18,7 +18,24 @@
 	const RETRY_DELAY = 2000;
 	const TIDB_API_KEY_SETTING = "tidb_api_key";
 	const ANALYTICS_SETTING = "anonymous_usage_reporting";
+	const THEME_SETTING = "tidb_theme";
 	const TIDB_USER_AGENT = "TheIntroDB Stremio Enhanced Plugin";
+
+	const THEMES = {
+		default: {
+			background: "#0f0d20",
+			hover: "#1b192b",
+			border: "none",
+			backdropFilter: "none"
+		},
+		glass: {
+			background: "rgba(70,70,70,0.22)",
+			hover: "rgba(255,255,255,0.22)",
+			border: "1px solid rgba(255,255,255,0.04)",
+			backdropFilter: "blur(10px)"
+		}
+	};
+
 	const SEGMENT_BUTTON_SETTINGS = {
 		intro: "show_intro_button",
 		recap: "show_recap_button",
@@ -78,7 +95,10 @@
 
 	function aptabaseGetIsDebug() {
 		if (_aptabaseIsDebug !== null) return _aptabaseIsDebug;
-		if (typeof location === "undefined") { _aptabaseIsDebug = false; return _aptabaseIsDebug; }
+		if (typeof location === "undefined") {
+			_aptabaseIsDebug = false;
+			return _aptabaseIsDebug;
+		}
 		_aptabaseIsDebug = location.hostname === "localhost";
 		return _aptabaseIsDebug;
 	}
@@ -94,7 +114,11 @@
 			if (!options || !options.host) return null;
 			return `${options.host}/api/v0/event`;
 		}
-		const hosts = { US: "https://us.aptabase.com", EU: "https://eu.aptabase.com", DEV: "https://localhost:3000" };
+		const hosts = {
+			US: "https://us.aptabase.com",
+			EU: "https://eu.aptabase.com",
+			DEV: "https://localhost:3000"
+		};
 		const host = (options && options.host) ? options.host : hosts[region];
 		return host ? `${host}/api/v0/event` : null;
 	}
@@ -148,10 +172,15 @@
 
 	function initAnalyticsOnce() {
 		if (window.__tidbAnalyticsInitialized) return;
-		const ok = aptabaseInit(APTABASE_APP_KEY, { host: APTABASE_HOST, appVersion: PLUGIN_VERSION });
+		const ok = aptabaseInit(APTABASE_APP_KEY, {
+			host: APTABASE_HOST,
+			appVersion: PLUGIN_VERSION
+		});
 		if (!ok) return;
 		window.__tidbAnalyticsInitialized = true;
-		aptabaseTrackEvent("plugin_started", { version: PLUGIN_VERSION });
+		aptabaseTrackEvent("plugin_started", {
+			version: PLUGIN_VERSION
+		});
 	}
 
 	function capitalize(value) {
@@ -190,6 +219,7 @@
 			this.overlayObserver = null;
 			this.userApiKey = "";
 			this.analyticsEnabled = true;
+			this.theme = "glass";
 			this.segmentButtonVisibility = Object.fromEntries(SEGMENT_TYPES.map((type) => [type, true]));
 			this.onTimeUpdate = null;
 			this.onSeekedHandler = null;
@@ -233,8 +263,20 @@
 						key: TIDB_API_KEY_SETTING,
 						type: "input",
 						label: "TIDB API Key",
-						description: "Optional personal TheIntroDB API key to include your pending segments in playback results.",
 						defaultValue: ""
+					},
+					{
+						key: THEME_SETTING,
+						type: "select",
+						label: "Button Theme",
+						options: [{
+							value: "default",
+							label: "Default"
+						}, {
+							value: "glass",
+							label: "Glass"
+						}],
+						defaultValue: "default"
 					}
 				];
 
@@ -272,6 +314,7 @@
 				return;
 			}
 
+			this.theme = (await StremioEnhancedAPI.getSetting(THEME_SETTING)) || "default";
 			this.userApiKey = normalizeApiKey(await StremioEnhancedAPI.getSetting(TIDB_API_KEY_SETTING));
 			this.analyticsEnabled = normalizeToggleValue(await StremioEnhancedAPI.getSetting(ANALYTICS_SETTING));
 			if (this.analyticsEnabled) initAnalyticsOnce();
@@ -321,10 +364,16 @@
 		async resolvePlaybackContext(urlChanged, sourceChanged) {
 			const now = Date.now();
 			const urlEpisodeId = this.extractEpisodeIdFromUrl();
-			const urlContext = urlEpisodeId ? { episodeId: urlEpisodeId, title: this.extractTitleFromDocument() } : null;
+			const urlContext = urlEpisodeId ? {
+				episodeId: urlEpisodeId,
+				title: this.extractTitleFromDocument()
+			} : null;
 			const shouldRefreshState = sourceChanged || now - this._lastStateCheckAt > 5000 || !this._lastStateContext;
 			if (!shouldRefreshState && !urlChanged) return urlContext || this._lastStateContext;
-			if (shouldRefreshState) { this._lastStateCheckAt = now; this._lastStateContext = await this.getPlaybackContextFromState(); }
+			if (shouldRefreshState) {
+				this._lastStateCheckAt = now;
+				this._lastStateContext = await this.getPlaybackContextFromState();
+			}
 			return this._lastStateContext || urlContext;
 		}
 
@@ -380,7 +429,11 @@
 			let m = url.match(/\/detail\/series\/([^/?#]+)\/(\d+)\/(\d+)/);
 			if (m) return `${m[1]}:${m[2]}:${m[3]}`;
 			m = url.match(/\/detail\/series\/([^/?#]+)/);
-			if (m) { const s = url.match(/[?&]season=(\d+)/), e = url.match(/[?&]episode=(\d+)/); if (s && e) return `${m[1]}:${s[1]}:${e[1]}`; }
+			if (m) {
+				const s = url.match(/[?&]season=(\d+)/),
+					e = url.match(/[?&]episode=(\d+)/);
+				if (s && e) return `${m[1]}:${s[1]}:${e[1]}`;
+			}
 			m = url.match(/\/detail\/movie\/([^/?#]+)/);
 			if (m) return m[1].split(":")[0];
 
@@ -420,7 +473,10 @@
 
 			let title = meta.name ? String(meta.name) : null;
 			if (title && seriesInfo && seriesInfo.season != null && seriesInfo.episode != null) title = `${title} S${String(seriesInfo.season).padStart(2, "0")}E${String(seriesInfo.episode).padStart(2, "0")}`;
-			return { episodeId, title };
+			return {
+				episodeId,
+				title
+			};
 		}
 
 		async waitForPlayerState() {
@@ -576,7 +632,17 @@
 					const widthPct = ((segmentEnd - segment.start) / duration) * 100;
 
 					highlight.className = `segment-highlight segment-${segmentType}`;
-					Object.assign(highlight.style, { position: "absolute", top: `${trackEl.offsetTop}px`, left: `${startPct}%`, width: `${widthPct}%`, borderRadius: "4px", height: `${trackEl.clientHeight}px`, background: SEGMENT_COLORS[segmentType], pointerEvents: "none", zIndex: "0" });
+					Object.assign(highlight.style, {
+						position: "absolute",
+						top: `${trackEl.offsetTop}px`,
+						left: `${startPct}%`,
+						width: `${widthPct}%`,
+						borderRadius: "4px",
+						height: `${trackEl.clientHeight}px`,
+						background: SEGMENT_COLORS[segmentType],
+						pointerEvents: "none",
+						zIndex: "0"
+					});
 
 					slider.insertBefore(highlight, thumbLayer && slider.contains(thumbLayer) ? thumbLayer : slider.firstChild);
 				}
@@ -602,7 +668,14 @@
 				for (const [segmentType, segmentList] of Object.entries(this.segments)) {
 					for (const segment of segmentList) {
 						const end = segment.end || this.video.duration;
-						if (this.video.currentTime >= segment.start && this.video.currentTime < end) { seg = { type: segmentType, start: segment.start, end }; break; }
+						if (this.video.currentTime >= segment.start && this.video.currentTime < end) {
+							seg = {
+								type: segmentType,
+								start: segment.start,
+								end
+							};
+							break;
+						}
 					}
 					if (seg) break;
 				}
@@ -631,9 +704,15 @@
 			if (this.overlayObserver) this.overlayObserver.disconnect();
 			this.overlayObserver = new MutationObserver(() => {
 				const isOverlayHidden = Array.from(playerContainer.classList).some((className) => className.includes("overlayHidden"));
-				if (!isOverlayHidden) { if (this.activeSegment && this.isSegmentButtonEnabled(this.activeSegment.type) && !document.getElementById(ACTIVE_BTN_ID)) this.showSkipButton(this.activeSegment); this.ensureHighlightsPresent(); }
+				if (!isOverlayHidden) {
+					if (this.activeSegment && this.isSegmentButtonEnabled(this.activeSegment.type) && !document.getElementById(ACTIVE_BTN_ID)) this.showSkipButton(this.activeSegment);
+					this.ensureHighlightsPresent();
+				}
 			});
-			this.overlayObserver.observe(playerContainer, { attributes: true, attributeFilter: ["class"] });
+			this.overlayObserver.observe(playerContainer, {
+				attributes: true,
+				attributeFilter: ["class"]
+			});
 		}
 
 		removeActiveButton() {
@@ -660,8 +739,12 @@
 
 		showSkipButton(segment) {
 			const segmentType = segment.type;
+			const theme = THEMES[this.theme] || THEMES.default;
+
 			if (document.getElementById(ACTIVE_BTN_ID) || !this.isSegmentButtonEnabled(segmentType)) return;
-			this.track("skip_button_shown", { segment: segmentType });
+			this.track("skip_button_shown", {
+				segment: segmentType
+			});
 
 			const skipBtn = document.createElement("button");
 			const icon = document.createElement("img");
@@ -677,19 +760,55 @@
 			icon.style.filter = "brightness(0) invert(1)";
 			icon.style.pointerEvents = "none";
 
-			Object.assign(skipBtn.style, { position: "absolute", bottom: "130px", right: "10vh", padding: "16px", background: "#0f0d20", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontSize: "24px", zIndex: 1000, display: "flex", alignItems: "center", gap: "8px", opacity: "0", transition: "opacity 0.5s ease-in-out" });
+			Object.assign(skipBtn.style, {
+				position: "absolute",
+				bottom: "130px",
+				right: "10vh",
+				padding: "16px",
+				background: theme.background,
+				color: "#fff",
+				border: theme.border,
+				borderRadius: "12px",
+				cursor: "pointer",
+				fontSize: "24px",
+				zIndex: 1000,
+				display: "flex",
+				alignItems: "center",
+				gap: "8px",
+				opacity: "0",
+				transition: "opacity 0.5s ease-in-out, background 0.15s",
+				backdropFilter: theme.backdropFilter
+			});
 
 			skipBtn.prepend(icon);
 
-			skipBtn.onmouseover = () => { skipBtn.style.backgroundColor = "#1b192b"; clearTimeout(this.skipButtonTimeout); };
-			skipBtn.onmouseout = () => { skipBtn.style.backgroundColor = "#0f0d20"; this.skipButtonTimeout = setTimeout(() => this.hideSkipButton(), HIDE_TIMEOUT); };
-			skipBtn.onclick = (event) => { event.preventDefault(); clearTimeout(this.skipButtonTimeout); this.track("skip_clicked", { segment: segmentType }); if (this.video) { this.video.currentTime = segment.end; console.log(`[TheIntroDB] Skipping ${segmentType}: targetTime=${segment.end}`); } skipBtn.remove(); this.displayedSegmentType = null; };
+			skipBtn.onmouseover = () => {
+				skipBtn.style.backgroundColor = theme.hover;
+			};
+			skipBtn.onmouseout = () => {
+				skipBtn.style.backgroundColor = theme.background;
+			};
+			skipBtn.onclick = (event) => {
+				event.preventDefault();
+				clearTimeout(this.skipButtonTimeout);
+				this.track("skip_clicked", {
+					segment: segmentType
+				});
+				if (this.video) {
+					this.video.currentTime = segment.end;
+					console.log(`[TheIntroDB] Skipping ${segmentType}: targetTime=${segment.end}`);
+				}
+				skipBtn.remove();
+				this.displayedSegmentType = null;
+			};
 
 			if (this.video && this.video.parentElement) {
 				this.video.parentElement.appendChild(skipBtn);
 			}
 
-			setTimeout(() => { skipBtn.style.opacity = "1"; }, 50);
+			setTimeout(() => {
+				skipBtn.style.opacity = "1";
+			}, 50);
 
 			this.skipButtonTimeout = setTimeout(() => this.hideSkipButton(), HIDE_TIMEOUT);
 		}
@@ -705,16 +824,36 @@
 				if (playerContainer && this.onMouseMoveHandler) playerContainer.removeEventListener("mousemove", this.onMouseMoveHandler);
 			}
 
-			if (this.overlayObserver) { this.overlayObserver.disconnect(); this.overlayObserver = null; }
+			if (this.overlayObserver) {
+				this.overlayObserver.disconnect();
+				this.overlayObserver = null;
+			}
 			clearTimeout(this.skipButtonTimeout);
 			this.removeActiveButton();
-			Object.assign(this, { video: null, episodeId: null, title: null, segments: emptySegments(), activeSegment: null, displayedSegmentType: null, onTimeUpdate: null, onSeekedHandler: null, onMouseMoveHandler: null, _lastFetchedDurationMs: null });
+			Object.assign(this, {
+				video: null,
+				episodeId: null,
+				title: null,
+				segments: emptySegments(),
+				activeSegment: null,
+				displayedSegmentType: null,
+				onTimeUpdate: null,
+				onSeekedHandler: null,
+				onMouseMoveHandler: null,
+				_lastFetchedDurationMs: null
+			});
 		}
 
 		destroy() {
 			this.cleanup();
-			if (this._observer) { this._observer.disconnect(); this._observer = null; }
-			if (this._checkTimer) { clearInterval(this._checkTimer); this._checkTimer = null; }
+			if (this._observer) {
+				this._observer.disconnect();
+				this._observer = null;
+			}
+			if (this._checkTimer) {
+				clearInterval(this._checkTimer);
+				this._checkTimer = null;
+			}
 		}
 	}
 
