@@ -12,7 +12,7 @@
 	"use strict";
 
 	const PLUGIN_VERSION = "1.0.1";
-	const SERVER_URL = "https://api.theintrodb.org/v2";
+	const SERVER_URL = "https://api.theintrodb.org/v3";
 	const ACTIVE_BTN_ID = "tidb-active-btn";
 	const MAX_RETRIES = 3;
 	const RETRY_DELAY = 2000;
@@ -171,6 +171,13 @@
 		return value !== false;
 	}
 
+	function getVideoDurationMs(video) {
+		const durationSec = video && typeof video.duration === "number" ? video.duration : NaN;
+		if (!Number.isFinite(durationSec) || durationSec <= 0) return null;
+		const durationMs = Math.round(durationSec * 1000);
+		return durationMs > 0 ? durationMs : null;
+	}
+
 	class TheIntroDBPlugin {
 		constructor() {
 			this.video = null;
@@ -194,6 +201,7 @@
 			this._lastStateContext = null;
 			this._lastStateCheckAt = 0;
 			this._lastVideoSource = null;
+			this._lastFetchedDurationMs = null;
 			this._checkTimer = null;
 			this._observer = null;
 			this.init();
@@ -340,7 +348,13 @@
 				if (!nextEpisodeId) return;
 
 				const episodeChanged = nextEpisodeId !== this.episodeId;
-				if (!episodeChanged && !videoChanged) return;
+				if (!episodeChanged && !videoChanged) {
+					const durationMs = getVideoDurationMs(video);
+					if (durationMs != null && durationMs !== this._lastFetchedDurationMs) {
+						await this.fetchData();
+					}
+					return;
+				}
 				if (this.video || this.episodeId) this.cleanup();
 
 				this.video = video;
@@ -465,6 +479,10 @@
 						queryParams.set("season", season);
 						queryParams.set("episode", episode);
 					}
+
+					const durationMs = getVideoDurationMs(video);
+					if (durationMs != null) queryParams.set("duration_ms", String(durationMs));
+					this._lastFetchedDurationMs = durationMs;
 
 					const res = await fetch(`${SERVER_URL}/media?${queryParams}`, {
 						headers: this.getTidbHeaders()
@@ -690,7 +708,7 @@
 			if (this.overlayObserver) { this.overlayObserver.disconnect(); this.overlayObserver = null; }
 			clearTimeout(this.skipButtonTimeout);
 			this.removeActiveButton();
-			Object.assign(this, { video: null, episodeId: null, title: null, segments: emptySegments(), activeSegment: null, displayedSegmentType: null, onTimeUpdate: null, onSeekedHandler: null, onMouseMoveHandler: null });
+			Object.assign(this, { video: null, episodeId: null, title: null, segments: emptySegments(), activeSegment: null, displayedSegmentType: null, onTimeUpdate: null, onSeekedHandler: null, onMouseMoveHandler: null, _lastFetchedDurationMs: null });
 		}
 
 		destroy() {
