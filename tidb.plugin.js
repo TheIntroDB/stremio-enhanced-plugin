@@ -23,17 +23,25 @@
 
 	const THEMES = {
 		default: {
-			background: "#0f0d20",
-			hover: "#1b192b",
-			border: "none",
-			backdropFilter: "none"
-		},
-		glass: {
-			background: "rgba(70,70,70,0.22)",
-			hover: "rgba(255,255,255,0.22)",
-			border: "1px solid rgba(255,255,255,0.04)",
-			backdropFilter: "blur(10px)"
-		}
+            background: "#0f0d20",
+            hover: "#1b192b",
+            border: "none",
+            backdropFilter: "none",
+            borderRadius: "6px",
+            fontSize: "24px",
+            padding: "16px",
+			iconSize: "24"
+        },
+        glass: {
+            background: "rgba(70,70,70,0.22)",
+            hover: "rgba(255,255,255,0.22)",
+            border: "1px solid rgba(255,255,255,0.04)",
+            backdropFilter: "blur(10px)",
+            borderRadius: "50px",
+            fontSize: "15px",
+            padding: "8px 16px",
+			iconSize: "20"
+        }
 	};
 
 	const SEGMENT_BUTTON_SETTINGS = {
@@ -755,8 +763,8 @@
 
 			icon.src = "https://www.svgrepo.com/show/471906/skip-forward.svg";
 			icon.alt = "Skip icon";
-			icon.width = 24;
-			icon.height = 24;
+			icon.width = theme.iconSize;
+			icon.height = theme.iconSize;
 			icon.style.filter = "brightness(0) invert(1)";
 			icon.style.pointerEvents = "none";
 
@@ -764,13 +772,13 @@
 				position: "absolute",
 				bottom: "130px",
 				right: "10vh",
-				padding: "16px",
+				padding: theme.padding,
 				background: theme.background,
 				color: "#fff",
 				border: theme.border,
-				borderRadius: "12px",
+				borderRadius: theme.borderRadius,
 				cursor: "pointer",
-				fontSize: "24px",
+				fontSize: theme.fontSize,
 				zIndex: 1000,
 				display: "flex",
 				alignItems: "center",
