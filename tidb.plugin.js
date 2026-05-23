@@ -2,7 +2,7 @@
  * @name TheIntroDB
  * @description Skip intros, recaps, credits, and previews in TV shows and movies in Stremio Enhanced using TheIntroDB API
  * @updateUrl https://raw.githubusercontent.com/TheIntroDB/stremio-enhanced-plugin/refs/heads/main/tidb.plugin.js
- * @version 1.1.0
+ * @version 1.1.1
  * @author TheIntroDB
  */
 /* jshint esversion: 11, browser: true, devel: true */
@@ -11,7 +11,7 @@
 (function() {
 	"use strict";
 
-	const PLUGIN_VERSION = "1.1.0";
+	const PLUGIN_VERSION = "1.1.1";
 	const SERVER_URL = "https://api.theintrodb.org/v3";
 	const ACTIVE_BTN_ID = "tidb-active-btn";
 	const MAX_RETRIES = 3;
@@ -769,7 +769,7 @@
 			icon.style.pointerEvents = "none";
 
 			Object.assign(skipBtn.style, {
-				position: "absolute",
+				position: "fixed",
 				bottom: "130px",
 				right: "10vh",
 				padding: theme.padding,
@@ -779,7 +779,7 @@
 				borderRadius: theme.borderRadius,
 				cursor: "pointer",
 				fontSize: theme.fontSize,
-				zIndex: 1000,
+				zIndex: 2147483647,
 				display: "flex",
 				alignItems: "center",
 				gap: "8px",
@@ -810,9 +810,9 @@
 				this.displayedSegmentType = null;
 			};
 
-			if (this.video && this.video.parentElement) {
-				this.video.parentElement.appendChild(skipBtn);
-			}
+			const playerContainer = this.video && typeof this.video.closest === "function" ? this.video.closest('[class*="player-container"]') : null;
+			const mountPoint = playerContainer || document.body;
+			mountPoint.appendChild(skipBtn);
 
 			setTimeout(() => {
 				skipBtn.style.opacity = "1";
