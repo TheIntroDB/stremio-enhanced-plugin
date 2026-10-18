@@ -226,8 +226,14 @@
 	function rateLimitDelayMs(res) {
 		const raw = res.headers.get("Retry-After") || res.headers.get("X-RateLimit-Reset") || res.headers.get("X-RateLimit-Reset-After");
 		const value = Number(raw);
-		if (!Number.isFinite(value) || value <= 0) return RETRY_DELAY;
-		const waitMs = value > 1e12 ? value - Date.now() : value > 1e9 ? value * 1000 - Date.now() : value * 1000;
+		let waitMs;
+		if (Number.isFinite(value) && value > 0) {
+			waitMs = value > 1e12 ? value - Date.now() : value > 1e9 ? value * 1000 - Date.now() : value * 1000;
+		} else {
+			const dateMs = raw ? Date.parse(raw) : NaN;
+			if (!Number.isFinite(dateMs)) return RETRY_DELAY;
+			waitMs = dateMs - Date.now();
+		}
 		if (!(waitMs > 0)) return RETRY_DELAY;
 		return waitMs > MAX_RATE_LIMIT_WAIT ? 0 : Math.round(waitMs);
 	}
