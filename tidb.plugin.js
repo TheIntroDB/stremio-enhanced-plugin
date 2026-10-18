@@ -974,6 +974,23 @@
 						return "next";
 					}
 
+					if (res.status >= 500) {
+						// A server error is the API not answering, not this identity being
+						// wrong. Retry the same request — a 502/503 is usually a blip — and if
+						// it persists end the chain instead of spending a request per remaining
+						// identity on an API that is down. The retry also covers a 503 that
+						// carries Retry-After: a wait past MAX_RATE_LIMIT_WAIT is not worth
+						// taking, so it falls back to RETRY_DELAY and the attempt cap bounds it.
+						const waitMs = rateLimitDelayMs(res);
+						const delayMs = waitMs > 0 ? waitMs : RETRY_DELAY;
+						console.warn(`[TheIntroDB] Server error for ${episodeId} (${identity.param}): ${res.status}; waiting ${delayMs} ms`);
+						if (attempt < MAX_RETRIES) {
+							await new Promise((resolve) => setTimeout(resolve, delayMs));
+							continue;
+						}
+						return "stop";
+					}
+
 					if (!res.ok) {
 						console.warn(`[TheIntroDB] Unexpected response for ${episodeId} (${identity.param}): ${res.status}`);
 						return "next";
