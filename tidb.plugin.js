@@ -917,14 +917,13 @@
 
 			const target = parseEpisodeTarget(episodeId);
 			const identities = this.mediaIdentities && this.mediaIdentities.length ? this.mediaIdentities : collectMediaIdentities({ id: target.metaId });
+			const durationMs = getVideoDurationMs(video);
+			this._lastFetchedDurationMs = durationMs;
 			if (identities.length === 0) {
 				console.warn(`[TheIntroDB] No usable media id for episode ${episodeId}`);
 				this.segments = emptySegments();
 				return null;
 			}
-
-			const durationMs = getVideoDurationMs(video);
-			this._lastFetchedDurationMs = durationMs;
 
 			for (const identity of identities) {
 				const outcome = await this.fetchIdentity(episodeId, identity, target, durationMs);
