@@ -68,7 +68,7 @@
 	});
 	const HIDE_TIMEOUT = 5000;
 
-	const APTABASE_APP_KEY = "A-SH-3524453842";
+	const APTABASE_APP_KEY = "A-SH-6381980594";
 	const APTABASE_HOST = "https://analytics.theintrodb.org";
 	const APTABASE_SDK_VERSION = "aptabase-web@userscript";
 	const APTABASE_SESSION_TIMEOUT_SEC = 1 * 60 * 60;
