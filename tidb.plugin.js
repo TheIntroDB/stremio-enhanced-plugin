@@ -12,10 +12,13 @@
 	"use strict";
 
 	const PLUGIN_VERSION = "1.1.4";
-	const SERVER_URL = "https://api.theintrodb.org/v3";
+	const SERVER_URL = "https://api.theintrodb.org/v4";
 	const ACTIVE_BTN_ID = "tidb-active-btn";
 	const MAX_RETRIES = 3;
 	const RETRY_DELAY = 2000;
+	// A 429's advertised reset can be a daily budget hours out; past this the plugin
+	// gives up instead of parking the player on a timer.
+	const MAX_RATE_LIMIT_WAIT = 30000;
 	const TIDB_API_KEY_SETTING = "tidb_api_key";
 	const ANALYTICS_SETTING = "anonymous_usage_reporting";
 	const THEME_SETTING = "tidb_theme";
@@ -215,11 +218,112 @@
 		return durationMs > 0 ? durationMs : null;
 	}
 
+	// A 429 advertises its wait in Retry-After or X-RateLimit-Reset — a delta in
+	// seconds, or an epoch in seconds or milliseconds. Those magnitudes do not
+	// overlap, so they separate cleanly. Waiting out a daily budget would stall the
+	// player for hours, so a wait past MAX_RATE_LIMIT_WAIT is not worth taking and
+	// comes back as 0; a response with no usable hint falls back to RETRY_DELAY.
+	function rateLimitDelayMs(res) {
+		const raw = res.headers.get("Retry-After") || res.headers.get("X-RateLimit-Reset") || res.headers.get("X-RateLimit-Reset-After");
+		const value = Number(raw);
+		let waitMs;
+		if (Number.isFinite(value) && value > 0) {
+			waitMs = value > 1e12 ? value - Date.now() : value > 1e9 ? value * 1000 - Date.now() : value * 1000;
+		} else {
+			const dateMs = raw ? Date.parse(raw) : NaN;
+			if (!Number.isFinite(dateMs)) return RETRY_DELAY;
+			waitMs = dateMs - Date.now();
+		}
+		if (!(waitMs > 0)) return RETRY_DELAY;
+		return waitMs > MAX_RATE_LIMIT_WAIT ? 0 : Math.round(waitMs);
+	}
+
+	function imdbIdentity(value) {
+		const match = String(value).match(/tt\d+/i);
+		return match ? { param: "imdb_id", value: match[0] } : null;
+	}
+
+	function numericIdentity(param, value) {
+		const str = String(value);
+		return /^\d+$/.test(str) ? { param: param, value: str } : null;
+	}
+
+	// Turns one raw id into the query parameter /media expects. A caller that knows
+	// where the id came from pins the parameter; otherwise the id's own prefix names
+	// the provider. "series:" and "movie:" are stripped first because they name the
+	// content type rather than a provider ("series:tt0149460" is still an IMDb id).
+	// "tt..." is always IMDb and a bare number is read as a TMDB id, which is the
+	// convention this plugin already used. Anything else the API cannot resolve, so
+	// it is dropped rather than sent as a guess.
+	function normalizeMediaIdentity(param, rawValue) {
+		const value = String(rawValue == null ? "" : rawValue).trim();
+		if (!value) return null;
+
+		const prefixed = value.match(/^([A-Za-z]+):(.+)$/);
+		const prefix = prefixed ? prefixed[1].toLowerCase() : null;
+		const provider = prefix === "series" || prefix === "movie" ? null : prefix;
+		const rest = (prefixed ? prefixed[2] : value).trim();
+		if (!rest) return null;
+
+		if (provider === "imdb") return imdbIdentity(rest);
+		if (provider === "tvdb") return numericIdentity("tvdb_id", rest);
+		if (provider === "tmdb") return numericIdentity("tmdb_id", rest);
+		if (provider !== null) return null;
+
+		// No provider prefix: the pinned parameter decides, and "tt..." is IMDb either way.
+		if (param === "imdb_id" || /^tt\d/i.test(rest)) return imdbIdentity(rest);
+		if (param === "tvdb_id") return numericIdentity("tvdb_id", rest);
+		if (param === "tmdb_id") return numericIdentity("tmdb_id", rest);
+		if (/^\d+$/.test(rest)) return { param: "tmdb_id", value: rest };
+		return null;
+	}
+
+	// The identities a meta item exposes, in the order they should be tried, with
+	// duplicates removed. The meta id comes first because it is the identity the app
+	// navigated to, so its numbering is the one the viewer is watching.
+	function collectMediaIdentities(meta) {
+		const identities = [];
+		const seen = new Set();
+		const add = (param, rawValue) => {
+			const identity = normalizeMediaIdentity(param, rawValue);
+			if (!identity) return;
+			const key = identity.param + ":" + identity.value;
+			if (seen.has(key)) return;
+			seen.add(key);
+			identities.push(identity);
+		};
+
+		if (meta) {
+			add(null, meta.id);
+			add("tvdb_id", meta.tvdb_id);
+			add("tmdb_id", meta.tmdb_id != null ? meta.tmdb_id : meta.moviedb_id);
+			add("imdb_id", meta.imdb_id);
+		}
+
+		return identities;
+	}
+
+	// "metaId:season:episode" for an episode, "metaId" for a movie. The meta id can
+	// itself contain a colon ("tmdb:615"), so the trailing pair is matched first: a
+	// plain split(":") would read "tmdb:615:6:1" as id "tmdb", season "615", episode "6".
+	function parseEpisodeTarget(episodeId) {
+		const value = String(episodeId == null ? "" : episodeId).trim();
+		if (!value) return null;
+		const trailing = value.match(/^(.*?):(\d+):(\d+)$/);
+		return {
+			metaId: trailing ? trailing[1] : value,
+			season: trailing ? trailing[2] : null,
+			episode: trailing ? trailing[3] : null,
+			isTvShow: Boolean(trailing)
+		};
+	}
+
 	class TheIntroDBPlugin {
 		constructor() {
 			this.video = null;
 			this.episodeId = null;
 			this.title = null;
+			this.mediaIdentities = null;
 			this.segments = emptySegments();
 			this.activeSegment = null;
 			this.displayedSegmentType = null;
@@ -702,6 +806,7 @@
 				this.video = video;
 				this.episodeId = nextEpisodeId;
 				this.title = context.title || null;
+				this.mediaIdentities = context.identities || null;
 
 				if (!this.onLoadedMetadataHandler) this.onLoadedMetadataHandler = () => this.checkPlaybackChange();
 				this.video.removeEventListener("loadedmetadata", this.onLoadedMetadataHandler);
@@ -762,13 +867,17 @@
 
 			const seriesInfo = state.seriesInfo;
 			const id = String(meta.id);
-			const episodeId = seriesInfo && seriesInfo.season && seriesInfo.episode ? `${id}:${seriesInfo.season}:${seriesInfo.episode}` : id;
+			// A season 0 episode is an episode, so this is a null check rather than a
+			// truthiness test — the title below already read it that way.
+			const hasEpisode = Boolean(seriesInfo) && seriesInfo.season != null && seriesInfo.episode != null;
+			const episodeId = hasEpisode ? `${id}:${seriesInfo.season}:${seriesInfo.episode}` : id;
 
 			let title = meta.name ? String(meta.name) : null;
-			if (title && seriesInfo && seriesInfo.season != null && seriesInfo.episode != null) title = `${title} S${String(seriesInfo.season).padStart(2, "0")}E${String(seriesInfo.episode).padStart(2, "0")}`;
+			if (title && hasEpisode) title = `${title} S${String(seriesInfo.season).padStart(2, "0")}E${String(seriesInfo.episode).padStart(2, "0")}`;
 			return {
 				episodeId,
-				title
+				title,
+				identities: collectMediaIdentities(meta)
 			};
 		}
 
@@ -806,97 +915,133 @@
 				return null;
 			}
 
-			const parts = String(episodeId).split(":");
-			const id = parts[0];
-			const season = parts.length >= 3 ? parts[1] : null;
-			const episode = parts.length >= 3 ? parts[2] : null;
-			const isTvShow = parts.length >= 3;
+			const target = parseEpisodeTarget(episodeId);
+			const identities = this.mediaIdentities && this.mediaIdentities.length ? this.mediaIdentities : collectMediaIdentities({ id: target.metaId });
+			const durationMs = getVideoDurationMs(video);
+			this._lastFetchedDurationMs = durationMs;
+			if (identities.length === 0) {
+				console.warn(`[TheIntroDB] No usable media id for episode ${episodeId}`);
+				this.segments = emptySegments();
+				return null;
+			}
+
+			for (const identity of identities) {
+				const outcome = await this.fetchIdentity(episodeId, identity, target, durationMs);
+				if (outcome !== "next") {
+					return null;
+				}
+			}
+
+			this.segments = emptySegments();
+			return null;
+		}
+
+		// Asks /media for one identity. Returns "loaded" once segment data has been
+		// applied, "next" when this identity resolved to nothing and the next one should
+		// be tried, and "stop" when the lookup cannot succeed at all — a rate limit or an
+		// API that is not answering, where another identity would fail the same way.
+		async fetchIdentity(episodeId, identity, target, durationMs) {
 			for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-				console.log(`[TheIntroDB] Fetching /media for episode ${episodeId} (attempt ${attempt})`);
+				console.log(`[TheIntroDB] Fetching /media for ${episodeId} as ${identity.param}=${identity.value} (attempt ${attempt})`);
 
 				try {
-					const isImdb = id.startsWith("tt");
 					const queryParams = new URLSearchParams();
+					queryParams.set(identity.param, identity.value);
 
-					if (isImdb) {
-						queryParams.set("imdb_id", id);
-					} else {
-						queryParams.set("tmdb_id", id);
+					if (target.isTvShow) {
+						queryParams.set("season", target.season);
+						queryParams.set("episode", target.episode);
 					}
 
-					if (isTvShow) {
-						queryParams.set("season", season);
-						queryParams.set("episode", episode);
-					}
-
-					const durationMs = getVideoDurationMs(video);
 					if (durationMs != null) queryParams.set("duration_ms", String(durationMs));
-					this._lastFetchedDurationMs = durationMs;
 
 					const res = await fetch(`${SERVER_URL}/media?${queryParams}`, {
 						headers: this.getTidbHeaders()
 					});
 
-					if (res.status === 204) {
-						this.segments = emptySegments();
-						console.log(`[TheIntroDB] No skip data for episode ${episodeId} (${res.status})`);
-						return null;
+					if (res.status === 429) {
+						const waitMs = rateLimitDelayMs(res);
+						console.warn(`[TheIntroDB] Rate limited for ${episodeId} (${identity.param}); waiting ${waitMs} ms`);
+						if (waitMs > 0 && attempt < MAX_RETRIES) {
+							await new Promise((resolve) => setTimeout(resolve, waitMs));
+							continue;
+						}
+						return "stop";
 					}
 
-					if (res.status === 404) {
-						this.segments = emptySegments();
-						console.warn(`[TheIntroDB] No data found for episode ${episodeId}`);
-						return null;
+					if (res.status === 204 || res.status === 404) {
+						console.log(`[TheIntroDB] No skip data for ${episodeId} via ${identity.param} (${res.status})`);
+						return "next";
+					}
+
+					if (res.status >= 500) {
+						// A server error is the API not answering, not this identity being
+						// wrong. Retry the same request — a 502/503 is usually a blip — and if
+						// it persists end the chain instead of spending a request per remaining
+						// identity on an API that is down. The retry also covers a 503 that
+						// carries Retry-After: a wait past MAX_RATE_LIMIT_WAIT is not worth
+						// taking, so it falls back to RETRY_DELAY and the attempt cap bounds it.
+						const waitMs = rateLimitDelayMs(res);
+						const delayMs = waitMs > 0 ? waitMs : RETRY_DELAY;
+						console.warn(`[TheIntroDB] Server error for ${episodeId} (${identity.param}): ${res.status}; waiting ${delayMs} ms`);
+						if (attempt < MAX_RETRIES) {
+							await new Promise((resolve) => setTimeout(resolve, delayMs));
+							continue;
+						}
+						return "stop";
 					}
 
 					if (!res.ok) {
-						console.warn(`[TheIntroDB] Unexpected response for ${episodeId}: ${res.status}`);
-						return null;
+						console.warn(`[TheIntroDB] Unexpected response for ${episodeId} (${identity.param}): ${res.status}`);
+						return "next";
 					}
 
-					const json = await res.json();
-					this.segments = emptySegments();
-
-					for (const segmentType of SEGMENT_TYPES) {
-						if (json[segmentType] && json[segmentType].length > 0) {
-							this.segments[segmentType] = json[segmentType].filter((segment) => segment.start_ms > 0 || segment.end_ms > 0).map((segment) => ({
-								start: segment.start_ms == null ? 0 : segment.start_ms / 1000,
-								end: segment.end_ms == null ? null : segment.end_ms / 1000
-							}));
-							console.log(`[TheIntroDB] Loaded ${this.segments[segmentType].length} ${segmentType} segments`);
-						}
-					}
-
-					if (Object.values(this.segments).flat().length === 0) {
-						console.log(`[TheIntroDB] No segment data found for episode ${episodeId}`);
-					}
-
-					this.waitAndHighlight();
-					this.attachTimeUpdate();
-					if (this.onTimeUpdate) {
-						this.onTimeUpdate();
-						setTimeout(() => this.onTimeUpdate && this.onTimeUpdate(), 200);
-					}
-					this.track("segments_loaded", {
-						has_intro: this.segments.intro && this.segments.intro.length > 0,
-						has_recap: this.segments.recap && this.segments.recap.length > 0,
-						has_credits: this.segments.credits && this.segments.credits.length > 0,
-						has_preview: this.segments.preview && this.segments.preview.length > 0,
-						total: Object.values(this.segments).reduce((acc, list) => acc + (list ? list.length : 0), 0)
-					});
-					return null;
+					this.applyMediaResponse(await res.json(), episodeId);
+					return "loaded";
 				} catch (err) {
-					console.error(`[TheIntroDB] Error fetching media for ${episodeId}:`, err);
+					console.error(`[TheIntroDB] Error fetching media for ${episodeId} (${identity.param}):`, err);
 
 					if (attempt < MAX_RETRIES) {
 						await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY));
-					} else {
-						return null;
 					}
 				}
 			}
 
-			return null;
+			// The retries are spent: the API is not answering, so the next identity would
+			// only repeat the same failure.
+			return "stop";
+		}
+
+		applyMediaResponse(json, episodeId) {
+			this.segments = emptySegments();
+
+			for (const segmentType of SEGMENT_TYPES) {
+				if (json[segmentType] && json[segmentType].length > 0) {
+					this.segments[segmentType] = json[segmentType].filter((segment) => segment.start_ms > 0 || segment.end_ms > 0).map((segment) => ({
+						start: segment.start_ms == null ? 0 : segment.start_ms / 1000,
+						end: segment.end_ms == null ? null : segment.end_ms / 1000
+					}));
+					console.log(`[TheIntroDB] Loaded ${this.segments[segmentType].length} ${segmentType} segments`);
+				}
+			}
+
+			if (Object.values(this.segments).flat().length === 0) {
+				console.log(`[TheIntroDB] No segment data found for episode ${episodeId}`);
+			}
+
+			this.waitAndHighlight();
+			this.attachTimeUpdate();
+			if (this.onTimeUpdate) {
+				this.onTimeUpdate();
+				setTimeout(() => this.onTimeUpdate && this.onTimeUpdate(), 200);
+			}
+			this.track("segments_loaded", {
+				has_intro: this.segments.intro && this.segments.intro.length > 0,
+				has_recap: this.segments.recap && this.segments.recap.length > 0,
+				has_credits: this.segments.credits && this.segments.credits.length > 0,
+				has_preview: this.segments.preview && this.segments.preview.length > 0,
+				total: Object.values(this.segments).reduce((acc, list) => acc + (list ? list.length : 0), 0)
+			});
 		}
 
 		waitAndHighlight() {
@@ -1127,6 +1272,7 @@
 				video: null,
 				episodeId: null,
 				title: null,
+				mediaIdentities: null,
 				segments: emptySegments(),
 				activeSegment: null,
 				displayedSegmentType: null,
