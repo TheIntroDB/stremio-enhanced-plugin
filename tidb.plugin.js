@@ -11,7 +11,7 @@
 (function() {
 	"use strict";
 
-	const PLUGIN_VERSION = "1.1.4";
+	const PLUGIN_VERSION = "1.2.1";
 	const SERVER_URL = "https://api.theintrodb.org/v4";
 	const ACTIVE_BTN_ID = "tidb-active-btn";
 	const MAX_RETRIES = 3;
