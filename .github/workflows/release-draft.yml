@@ -1,0 +1,31 @@
+name: '📝 Update Release Draft'
+
+# Keeps a draft GitHub Release up to date with the PRs merged into main, using
+# .github/release-drafter.yml. Publishing the draft is what creates the release
+# the plugin file is downloaded from and what tags the version that publish.yml
+# then writes into tidb.plugin.js and manifest.json.
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      # publish.yml commits these after a release; ignoring them keeps that
+      # automation from immediately re-triggering an empty draft.
+      - tidb.plugin.js
+      - manifest.json
+      - '**/*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  update_release_draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update Draft
+        uses: release-drafter/release-drafter@34d80673e067bdc0c24568d3af899c216adcfaa9 # v7.7.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
