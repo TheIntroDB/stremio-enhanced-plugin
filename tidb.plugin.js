@@ -17,8 +17,14 @@
 	const MAX_RETRIES = 3;
 	const RETRY_DELAY = 2000;
 	// A 429's advertised reset can be a daily budget hours out; past this the plugin
-	// gives up instead of parking the player on a timer.
+	// gives up instead of parking the player on a timer. This is the action cap,
+	// not the classification line below: a player that sleeps for fourteen hours
+	// is worse than one that says why it stopped.
 	const MAX_RATE_LIMIT_WAIT = 30000;
+	// Classification line for a 429 carrying no `code`: a daily reset is hours
+	// away, so a wait past this cannot be a burst. The same 300s line
+	// jellyfin-plugin, emby-plugin, kodi-addon and universal-extension use.
+	const USAGE_WAIT_FLOOR_SECONDS = 300;
 	const TIDB_API_KEY_SETTING = "tidb_api_key";
 	const ANALYTICS_SETTING = "anonymous_usage_reporting";
 	const THEME_SETTING = "tidb_theme";
@@ -218,24 +224,55 @@
 		return durationMs > 0 ? durationMs : null;
 	}
 
-	// A 429 advertises its wait in Retry-After or X-RateLimit-Reset — a delta in
-	// seconds, or an epoch in seconds or milliseconds. Those magnitudes do not
-	// overlap, so they separate cleanly. Waiting out a daily budget would stall the
-	// player for hours, so a wait past MAX_RATE_LIMIT_WAIT is not worth taking and
-	// comes back as 0; a response with no usable hint falls back to RETRY_DELAY.
-	function rateLimitDelayMs(res) {
-		const raw = res.headers.get("Retry-After") || res.headers.get("X-RateLimit-Reset") || res.headers.get("X-RateLimit-Reset-After");
-		const value = Number(raw);
-		let waitMs;
-		if (Number.isFinite(value) && value > 0) {
-			waitMs = value > 1e12 ? value - Date.now() : value > 1e9 ? value * 1000 - Date.now() : value * 1000;
-		} else {
-			const dateMs = raw ? Date.parse(raw) : NaN;
-			if (!Number.isFinite(dateMs)) return RETRY_DELAY;
-			waitMs = dateMs - Date.now();
+	// How long a 429 wants us to wait, and which of the two it is. The rules are
+	// in TheIntroDB/.github docs/rate-limit-contract.md: the API shapes both 429s
+	// the same way -- same JSON keys, same Retry-After -- so `code` is the only
+	// discriminator, and it decides the policy rather than the duration.
+	//
+	// Two lines live here on purpose. Classification uses the shared 300s line, so
+	// an unrecognised 429 is read the same way by every client. The wait this
+	// plugin will actually take stays capped at MAX_RATE_LIMIT_WAIT, because a
+	// player should not park itself on a timer for hours.
+	function rateLimitWaitSeconds(res, body) {
+		const raw = res.headers.get("Retry-After") || res.headers.get("X-UsageLimit-Reset") || res.headers.get("X-RateLimit-Reset");
+		if (raw) {
+			const value = Number(raw);
+			if (Number.isFinite(value) && value > 0) {
+				// A delta in seconds, or an epoch in seconds or milliseconds. Those
+				// magnitudes do not overlap, so they separate cleanly.
+				if (value > 1e12) return (value - Date.now()) / 1000;
+				if (value > 1e9) return value - Date.now() / 1000;
+				return value;
+			}
+			const dateMs = Date.parse(raw);
+			if (Number.isFinite(dateMs)) return (dateMs - Date.now()) / 1000;
 		}
-		if (!(waitMs > 0)) return RETRY_DELAY;
-		return waitMs > MAX_RATE_LIMIT_WAIT ? 0 : Math.round(waitMs);
+		// The body carries the same instant as Retry-After, so it is a fallback
+		// rather than a second guess.
+		const bodySeconds = body ? body.retry_after_seconds : null;
+		return typeof bodySeconds === "number" && Number.isFinite(bodySeconds) ? bodySeconds : null;
+	}
+
+	function classifyRateLimit(code, seconds) {
+		if (code === "rate_limit_exceeded") return "rate";
+		if (code === "usage_limit_exceeded" || code === "specific_media_usage_limit_exceeded") return "usage";
+		return seconds > USAGE_WAIT_FLOOR_SECONDS ? "usage" : "rate";
+	}
+
+	// The bounded wait this plugin is willing to take: 0 means "do not wait", and
+	// a response with no usable hint falls back to RETRY_DELAY. The body is
+	// passed through, so a burst whose wait is only in `retry_after_seconds`
+	// still gets its ten seconds instead of the two-second fallback.
+	function rateLimitDelayMs(res, body) {
+		const seconds = rateLimitWaitSeconds(res, body);
+		if (seconds === null || !(seconds > 0)) return RETRY_DELAY;
+		return seconds * 1000 > MAX_RATE_LIMIT_WAIT ? 0 : Math.round(seconds * 1000);
+	}
+
+	function formatWaitSeconds(seconds) {
+		if (seconds >= 3600) return `~${(seconds / 3600).toFixed(1)}h`;
+		if (seconds >= 60) return `~${Math.floor(seconds / 60)}m`;
+		return `${Math.round(seconds)}s`;
 	}
 
 	function imdbIdentity(value) {
@@ -960,12 +997,33 @@
 					});
 
 					if (res.status === 429) {
-						const waitMs = rateLimitDelayMs(res);
-						console.warn(`[TheIntroDB] Rate limited for ${episodeId} (${identity.param}); waiting ${waitMs} ms`);
+						// The body carries `code` and retry_after_seconds, and reading it is
+						// what separates "slow down for ten seconds" from "the day's budget
+						// is gone". A body that is not JSON -- a proxy's 429 -- leaves the
+						// size of the wait to decide.
+						const body = await res.json().catch(() => null);
+						const seconds = rateLimitWaitSeconds(res, body);
+						const code = body && typeof body.code === "string" ? body.code : null;
+						const kind = seconds === null ? "rate" : classifyRateLimit(code, seconds);
+						const asked = seconds === null ? "an unspecified wait" : formatWaitSeconds(seconds);
+						console.warn(`[TheIntroDB] Rate limited for ${episodeId} (${identity.param}): ${kind}${code ? " (" + code + ")" : ""}, API asked for ${asked}`);
+						if (kind === "usage") {
+							// Nothing clears a spent budget before the window rolls over, so end
+							// the chain rather than spending one request per remaining identity
+							// on a 429 that cannot succeed yet. The per-title code is spent for
+							// this media only, so name it rather than blaming the daily budget.
+							const what = code === "specific_media_usage_limit_exceeded"
+								? "This title's budget is spent"
+								: "The daily budget is spent";
+							console.warn(`[TheIntroDB] ${what}; it resets in ${asked}`);
+							return "stop";
+						}
+						const waitMs = rateLimitDelayMs(res, body);
 						if (waitMs > 0 && attempt < MAX_RETRIES) {
 							await new Promise((resolve) => setTimeout(resolve, waitMs));
 							continue;
 						}
+						console.warn(`[TheIntroDB] Not waiting ${asked} for a burst; not retrying this identity`);
 						return "stop";
 					}
 
