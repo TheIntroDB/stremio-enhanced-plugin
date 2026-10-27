@@ -260,9 +260,11 @@
 	}
 
 	// The bounded wait this plugin is willing to take: 0 means "do not wait", and
-	// a response with no usable hint falls back to RETRY_DELAY.
-	function rateLimitDelayMs(res) {
-		const seconds = rateLimitWaitSeconds(res);
+	// a response with no usable hint falls back to RETRY_DELAY. The body is
+	// passed through, so a burst whose wait is only in `retry_after_seconds`
+	// still gets its ten seconds instead of the two-second fallback.
+	function rateLimitDelayMs(res, body) {
+		const seconds = rateLimitWaitSeconds(res, body);
 		if (seconds === null || !(seconds > 0)) return RETRY_DELAY;
 		return seconds * 1000 > MAX_RATE_LIMIT_WAIT ? 0 : Math.round(seconds * 1000);
 	}
@@ -1008,11 +1010,15 @@
 						if (kind === "usage") {
 							// Nothing clears a spent budget before the window rolls over, so end
 							// the chain rather than spending one request per remaining identity
-							// on a 429 that cannot succeed yet.
-							console.warn(`[TheIntroDB] Daily budget spent; it resets in ${asked}`);
+							// on a 429 that cannot succeed yet. The per-title code is spent for
+							// this media only, so name it rather than blaming the daily budget.
+							const what = code === "specific_media_usage_limit_exceeded"
+								? "This title's budget is spent"
+								: "The daily budget is spent";
+							console.warn(`[TheIntroDB] ${what}; it resets in ${asked}`);
 							return "stop";
 						}
-						const waitMs = rateLimitDelayMs(res);
+						const waitMs = rateLimitDelayMs(res, body);
 						if (waitMs > 0 && attempt < MAX_RETRIES) {
 							await new Promise((resolve) => setTimeout(resolve, waitMs));
 							continue;
