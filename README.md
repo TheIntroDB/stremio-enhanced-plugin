@@ -41,7 +41,17 @@ Pull requests are welcome! For major changes, please open an issue first to disc
 
 ## License
 
-See [LICENSE](./LICENSE) for details.
+**GNU General Public License v3.0 or later** (`GPL-3.0-or-later`) — see [LICENSE](LICENSE) for the full text.
+
+> This program is free software: you can redistribute it and/or modify it under the
+> terms of the GNU General Public License as published by the Free Software
+> Foundation, either version 3 of the License, or (at your option) any later version.
+>
+> This program is distributed in the hope that it will be useful, but WITHOUT ANY
+> WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+> PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+Every source file carries `SPDX-License-Identifier: GPL-3.0-or-later`. The "or later" grant is deliberate: it lets the project adopt a future GPL version without re-licensing from every contributor.
 
 ---
 
